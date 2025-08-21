@@ -1,0 +1,122 @@
+// Air Unit - Arduino Uno - Improved MAVLink Packet Display as AT+SEND
+// All baud rates set to 57600
+
+#define BAUD_RATE 57600
+#define STATUS_LED 13
+
+unsigned long bytesReceived = 0;
+unsigned long packetsProcessed = 0;
+unsigned long lastBlink = 0;
+
+const byte MAVLINK_STX = 0xFE;
+const int MAX_PACKET_SIZE = 280; // MAVLink max packet size
+
+enum State {WAIT_STX, WAIT_LENGTH, COLLECT_PACKET};
+State state = WAIT_STX;
+byte packetBuffer[MAX_PACKET_SIZE];
+byte expectedLen = 0;
+int bufIdx = 0;
+unsigned long lastPacketTime = 0;
+
+void setup() {
+  Serial.begin(BAUD_RATE);
+  
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, HIGH);
+  
+  delay(2000);
+  
+  Serial.println("=== MAVLink Packet Logger ===");
+  Serial.println("Baud Rate: " + String(BAUD_RATE));
+  Serial.println("Waiting for MAVLink packets...");
+  Serial.println("=====================================");
+  
+  digitalWrite(STATUS_LED, LOW);
+}
+
+void loop() {
+  // Process incoming bytes
+  while (Serial.available()) {
+    byte inByte = Serial.read();
+    bytesReceived++;
+    
+    // Reset state machine if no packet activity for too long (1 second)
+    if (millis() - lastPacketTime > 1000 && state != WAIT_STX) {
+      state = WAIT_STX;
+      bufIdx = 0;
+    }
+    
+    switch (state) {
+      case WAIT_STX:
+        if (inByte == MAVLINK_STX) {
+          state = WAIT_LENGTH;
+          packetBuffer[0] = inByte;
+          bufIdx = 1;
+          lastPacketTime = millis();
+        }
+        break;
+        
+      case WAIT_LENGTH:
+        expectedLen = inByte;
+        packetBuffer[bufIdx++] = inByte;
+        state = COLLECT_PACKET;
+        
+        // Sanity check on payload length
+        if (expectedLen > 255) {
+          state = WAIT_STX;
+          bufIdx = 0;
+        }
+        break;
+        
+      case COLLECT_PACKET:
+        packetBuffer[bufIdx++] = inByte;
+        
+        // MAVLink packet structure: STX(1) + LEN(1) + SEQ(1) + SYS(1) + COMP(1) + MSG(1) + PAYLOAD(LEN) + CRC(2)
+        // Total length = 8 + payload length
+        if (bufIdx >= (expectedLen + 8)) {
+          // Complete packet received
+          printAtSend(packetBuffer, bufIdx);
+          packetsProcessed++;
+          state = WAIT_STX;
+          bufIdx = 0;
+        }
+        
+        // Safety: prevent buffer overflow
+        if (bufIdx >= MAX_PACKET_SIZE - 1) {
+          state = WAIT_STX;
+          bufIdx = 0;
+        }
+        break;
+    }
+    
+    // LED activity indicator
+    if (bytesReceived % 50 == 0) {
+      digitalWrite(STATUS_LED, HIGH);
+      lastBlink = millis();
+    }
+    
+    if (millis() - lastBlink > 30) {
+      digitalWrite(STATUS_LED, LOW);
+    }
+  }
+  
+  // Print statistics every 10 seconds
+  static unsigned long lastStats = 0;
+  if (millis() - lastStats > 10000) {
+    Serial.println("--- Stats: " + String(packetsProcessed) + " packets, " + String(bytesReceived) + " bytes ---");
+    lastStats = millis();
+  }
+}
+
+void printAtSend(byte* buf, int len) {
+  Serial.print("AT+SEND=0,");
+  Serial.print(len);
+  Serial.print(",");
+  
+  // Print packet data as hex (uppercase for consistency)
+  for (int i = 0; i < len; i++) {
+    if (buf[i] < 16) Serial.print("0");
+    Serial.print(buf[i], HEX);
+  }
+  Serial.println();
+}
