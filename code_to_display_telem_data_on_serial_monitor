@@ -1,0 +1,52 @@
+// Air Unit - Arduino Uno - Simple Telemetry Display
+// Uses hardware serial (pins 0,1) directly
+// All baud rates set to 57600
+
+#define BAUD_RATE 57600
+#define STATUS_LED 13
+
+unsigned long bytesReceived = 0;
+unsigned long lastBlink = 0;
+
+void setup() {
+  // Initialize Serial at 57600 baud
+  // This will be used for both Pixhawk input AND Serial Monitor output
+  Serial.begin(BAUD_RATE);
+  
+  // Status LED
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, HIGH);
+  
+  delay(2000);
+  
+  // Initial message
+  Serial.println("=== Pixhawk Telemetry Monitor ===");
+  Serial.println("Baud Rate: " + String(BAUD_RATE));
+  Serial.println("Ready to receive data...");
+  Serial.println("=====================================");
+  
+  digitalWrite(STATUS_LED, LOW);
+}
+
+void loop() {
+  // Check if data is available
+  if (Serial.available()) {
+    // Read and immediately display the incoming byte
+    char incomingByte = Serial.read();
+    bytesReceived++;
+    
+    // Blink LED every 100 bytes to show activity
+    if (bytesReceived % 100 == 0) {
+      digitalWrite(STATUS_LED, HIGH);
+      lastBlink = millis();
+    }
+    
+    // Turn off LED after 50ms
+    if (millis() - lastBlink > 50) {
+      digitalWrite(STATUS_LED, LOW);
+    }
+    
+    // Display the byte (this will show in Serial Monitor)
+    Serial.write(incomingByte);
+  }
+}
