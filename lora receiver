@@ -1,0 +1,38 @@
+import serial
+import time
+
+# ----- LoRa Config -----
+PORT = "COM9"   # ⚠️ change to your receiver’s COM port
+BAUD = 57600
+
+ser = serial.Serial(PORT, BAUD, timeout=1)
+
+def send_ack():
+    ser.write(b"ACK\n")
+
+def run_receiver():
+    print("📡 Receiver ready. Waiting for data...\n")
+
+    while True:
+        line = ser.readline().decode(errors="ignore").strip()
+        if not line:
+            continue
+
+        start_time = time.time()
+        data_len = len(line)
+        end_time = time.time()
+
+        # Send ACK immediately
+        send_ack()
+
+        # Compute transmission speed
+        duration = max(end_time - start_time, 0.001)
+        speed = data_len / duration
+
+        # Print info
+        print(f"📥 Received: {line}")
+        print(f"↕ {data_len} bytes | Speed: {speed:.2f} B/s\n")
+
+
+if __name__ == "__main__":
+    run_receiver()
