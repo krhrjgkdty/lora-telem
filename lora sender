@@ -1,0 +1,82 @@
+import serial, time, sys, signal, atexit, os
+
+# ----- LoRa Config -----
+PORT = "COM8"
+BAUD = 57600
+ACK_TIMEOUT = 5.0
+RETRIES = 3
+PAUSE_AFTER_SEND = 0.25
+
+# The coordinate line to send
+DATA_LINE = "12.974800,77.597900,908.13"
+
+# Log file (optional)
+LOGFILE = "sender_log.txt"
+_output_buffer = []
+
+
+# ----- Safe Print -----
+def log_print(*args):
+    msg = " ".join(str(a) for a in args)
+    _output_buffer.append(msg)
+    sys.__stdout__.write(msg + "\n")
+    sys.__stdout__.flush()
+
+def save_log():
+    try:
+        with open(LOGFILE, "a") as f:
+            f.write("\n".join(_output_buffer) + "\n")
+    except Exception:
+        pass
+
+atexit.register(save_log)
+signal.signal(signal.SIGINT, lambda sig, frame: sys.exit(0))
+signal.signal(signal.SIGTERM, lambda sig, frame: sys.exit(0))
+
+
+# ----- Serial -----
+ser = serial.Serial(PORT, BAUD, timeout=1)
+
+def send_payload(payload: str):
+    ser.write((payload + "\n").encode())
+
+def wait_for_ack(timeout: float):
+    end = time.time() + timeout
+    while time.time() < end:
+        line = ser.readline().decode(errors="ignore").strip()
+        if line:
+            return line
+    return None
+
+
+# ----- Main -----
+def main():
+    total_bytes = len(DATA_LINE) + 1  # +1 for newline
+    log_print(f"\n📡 Sending: {DATA_LINE} ({total_bytes} bytes)")
+
+    success = False
+    for attempt in range(RETRIES):
+        start = time.time()
+        send_payload(DATA_LINE)
+        ack = wait_for_ack(ACK_TIMEOUT)
+        end = time.time()
+
+        duration = end - start
+        speed = total_bytes / duration if duration > 0 else 0
+
+        if ack:
+            log_print(f"✅ ACK received ({len(ack)} bytes) | Speed: {speed:.2f} B/s")
+            success = True
+            break
+        else:
+            log_print(f"⚠ No ACK | Attempt {attempt+1} | Speed: {speed:.2f} B/s")
+        time.sleep(PAUSE_AFTER_SEND)
+
+    if not success:
+        log_print("❌ Transmission failed after retries")
+
+
+if __name__ == "__main__":
+    while True:
+        main()
+        time.sleep(3)
